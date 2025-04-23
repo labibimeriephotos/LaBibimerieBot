@@ -42,20 +42,34 @@ def get_drive_service():
 def get_random_drive_files():
     service = get_drive_service()
 
-    # Get folder ID
+    # Get folder ID for the "Shooting Malou" folder
     response = service.files().list(q=f"name='{GDRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'",
                                      spaces='drive').execute()
     folder_id = response['files'][0]['id']
 
-    # Get media files in folder
-    results = service.files().list(
-        q=f"'{folder_id}' in parents and (mimeType contains 'image/' or mimeType contains 'video/')",
-        fields="files(id, name, mimeType)",
-        spaces='drive'
-    ).execute()
-    items = results.get('files', [])
+    # Get all files within the "Shooting Malou" folder, including in subfolders
+    def list_files_in_folder(folder_id):
+        files = []
+        page_token = None
+        while True:
+            response = service.files().list(
+                q=f"'{folder_id}' in parents and (mimeType contains 'image/' or mimeType contains 'video/')",
+                fields="files(id, name, mimeType, parents)",
+                spaces='drive',
+                pageToken=page_token
+            ).execute()
+            files.extend(response['files'])
+            page_token = response.get('nextPageToken')
+            if not page_token:
+                break
+        return files
 
-    return random.sample(items, 3)
+    # Get files from the main folder and its subfolders
+    files_in_main_and_subfolders = list_files_in_folder(folder_id)
+
+    # Ensure we don't try to sample more than the available files
+    sample_size = min(3, len(files_in_main_and_subfolders))
+    return random.sample(files_in_main_and_subfolders, sample_size)
 
 # === DOWNLOAD FILE FROM GOOGLE DRIVE ===
 def download_drive_file(file):
