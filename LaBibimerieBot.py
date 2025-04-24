@@ -12,12 +12,13 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-# === CONFIG ===
+# === CONFIGURATION ===
 TELEGRAM_BOT_TOKEN = "8100815907:AAHYEmZqMpLoZnfWAvqGBLyxSOWU_pDHXfg"
 CHAT_ID = "7991646583"
 GDRIVE_FOLDER_NAME = "Shooting Malou"
 CREDENTIALS_FILE = "credentials.json"
 
+# === HORAIRES SELON JOUR ===
 def get_opening_hours():
     today = datetime.datetime.now().strftime("%A")
     hours = {
@@ -31,6 +32,7 @@ def get_opening_hours():
     }
     return hours.get(today, "Fermé")
 
+# === GOOGLE DRIVE CONNECTION ===
 def get_drive_service():
     creds = service_account.Credentials.from_service_account_file(
         CREDENTIALS_FILE,
@@ -38,13 +40,12 @@ def get_drive_service():
     )
     return build("drive", "v3", credentials=creds)
 
+# === LIST ALL FILES (RECURSIVELY) ===
 def get_random_drive_files():
     service = get_drive_service()
-
     response = service.files().list(q=f"name='{GDRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'",
                                      spaces='drive').execute()
     folder_id = response['files'][0]['id']
-
     all_files = []
 
     def explore_folder(fid):
@@ -62,6 +63,7 @@ def get_random_drive_files():
     explore_folder(folder_id)
     return random.sample(all_files, min(3, len(all_files)))
 
+# === DOWNLOAD FILE ===
 def download_drive_file(file):
     service = get_drive_service()
     request = service.files().get_media(fileId=file['id'])
@@ -73,9 +75,9 @@ def download_drive_file(file):
         _, done = downloader.next_chunk()
     return temp_file.name, file['mimeType']
 
+# === ENVOI DES STORIES ===
 async def send_stories():
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
     await bot.send_message(chat_id=CHAT_ID, text="🇰🇷 bonjour 🇫🇷 open")
     await bot.send_message(chat_id=CHAT_ID, text=get_opening_hours())
     await bot.send_message(chat_id=CHAT_ID, text="https://la-bibimerie.bykomdab.com/?booking=true")
@@ -93,7 +95,10 @@ async def send_stories():
                 await bot.send_photo(chat_id=CHAT_ID, photo=f)
         os.remove(path)
 
+# === COMMANDES TELEGRAM ===
 async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("✅ Commande /run ou /rerun reçue !")
+    await update.message.reply_text("📩 Commande reçue, les stories arrivent...")
     await send_stories()
 
 # === FLASK SERVER ===
@@ -104,14 +109,14 @@ app = Flask(__name__)
 def healthz():
     return "OK", 200
 
-# === START EVERYTHING ===
+# === LANCEMENT DU BOT ===
 async def start_telegram_bot():
     app_bot = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("run", run_command))
     app_bot.add_handler(CommandHandler("rerun", run_command))
     await app_bot.initialize()
     await app_bot.start()
-    print("Bot is running")
+    print("🤖 Bot Telegram démarré !")
     await app_bot.updater.start_polling()
     await app_bot.updater.idle()
 
