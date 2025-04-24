@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # === CONFIGURATION ===
-TELEGRAM_BOT_TOKEN = "8100815907:AAHYEmZqMpLoZnfWAvqGBLyxSOWU_pDHXfg"
+TELEGRAM_BOT_TOKEN = "8100815907:AAG5HMoCSD1GBdhM2XWN5F5-kyLu42szEfU"
 CHAT_ID = "7991646583"
 GDRIVE_FOLDER_NAME = "Shooting Malou"
 CREDENTIALS_FILE = "credentials.json"
