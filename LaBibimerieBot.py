@@ -97,4 +97,41 @@ async def send_stories():
     await bot.send_message(chat_id=CHAT_ID, text="réserver / book a table")
 
     # Texte 2 : menu
-    await bot.send_message(chat_id=CHAT
+    await bot.send_message(chat_id=CHAT_ID, text="https://wiicmenu-qrcode.com/app/offre.php?resto=848")
+    await bot.send_message(chat_id=CHAT_ID, text="menu")
+
+    # Média 3 : aléatoire
+    files = get_all_media_files()
+    if len(files) < 3:
+        await bot.send_message(chat_id=CHAT_ID, text="Pas assez de fichiers dans Google Drive !")
+        return
+    selected = random.sample(files, 3)
+    for file in selected:
+        path, mime_type = download_drive_file(file)
+        with open(path, "rb") as f:
+            if "video" in mime_type:
+                await bot.send_video(chat_id=CHAT_ID, video=f)
+            else:
+                await bot.send_photo(chat_id=CHAT_ID, photo=f)
+        os.remove(path)
+
+# === COMMANDE TELEGRAM /run ET /rerun ===
+async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_stories()
+
+# === MAIN FLASK + TELEGRAM ===
+async def main():
+    # Lance Flask en tâche de fond
+    from threading import Thread
+    def run_flask():
+        app.run(host="0.0.0.0", port=10000)
+    Thread(target=run_flask).start()
+
+    # Lance Telegram
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    application.add_handler(CommandHandler("run", run_command))
+    application.add_handler(CommandHandler("rerun", run_command))
+    await application.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
