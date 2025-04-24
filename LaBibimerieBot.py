@@ -1,16 +1,21 @@
 import os
 import random
 import datetime
-import asyncio
 import tempfile
+import io
+import asyncio
+
 from flask import Flask
-from threading import Thread
 from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes
+)
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-import io
 
 # === CONFIGURATION ===
 TELEGRAM_BOT_TOKEN = "8100815907:AAG5HMoCSD1GBdhM2XWN5F5-kyLu42szEfU"
@@ -21,10 +26,10 @@ CREDENTIALS_FILE = "credentials.json"
 # === FLASK POUR RENDER ===
 app = Flask(__name__)
 @app.route("/")
-def index():
-    return "Bot is running!"
+def home():
+    return "LaBibimerieBot est en ligne !"
 
-# === HORAIRES ===
+# === HORAIRES PAR JOUR ===
 def get_opening_hours():
     today = datetime.datetime.now().strftime("%A")
     hours = {
@@ -38,7 +43,7 @@ def get_opening_hours():
     }
     return hours.get(today, "Fermé")
 
-# === GOOGLE DRIVE ===
+# === GOOGLE DRIVE SETUP ===
 def get_drive_service():
     creds = service_account.Credentials.from_service_account_file(
         CREDENTIALS_FILE,
@@ -46,30 +51,32 @@ def get_drive_service():
     )
     return build("drive", "v3", credentials=creds)
 
+# === FICHIERS MEDIA (avec navigation récursive dans les sous-dossiers) ===
 def get_all_media_files():
     service = get_drive_service()
-    folder_id_resp = service.files().list(
-        q=f"name='{GDRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+    folder_resp = service.files().list(
+        q=f"name='{GDRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'",
         spaces='drive'
     ).execute()
-    folder_id = folder_id_resp['files'][0]['id']
+    folder_id = folder_resp['files'][0]['id']
 
     all_files = []
 
-    def explore_folder(folder_id):
+    def explore(folder_id):
         response = service.files().list(
             q=f"'{folder_id}' in parents and trashed=false",
             fields="files(id, name, mimeType)"
         ).execute()
         for file in response.get('files', []):
             if file['mimeType'] == 'application/vnd.google-apps.folder':
-                explore_folder(file['id'])  # récursif
+                explore(file['id'])
             elif 'image/' in file['mimeType'] or 'video/' in file['mimeType']:
                 all_files.append(file)
 
-    explore_folder(folder_id)
+    explore(folder_id)
     return all_files
 
+# === TÉLÉCHARGEMENT MEDIA ===
 def download_drive_file(file):
     service = get_drive_service()
     request = service.files().get_media(fileId=file['id'])
@@ -81,23 +88,26 @@ def download_drive_file(file):
         status, done = downloader.next_chunk()
     return temp_file.name, file['mimeType']
 
-# === ENVOI DES MESSAGES ===
+# === ENVOI DES STORIES ===
 async def send_stories():
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-    # Story 1 : messages séparés
+    # Story 1 - 4 messages
     await bot.send_message(chat_id=CHAT_ID, text="🇰🇷 bonjour 🇫🇷 open")
     await bot.send_message(chat_id=CHAT_ID, text=get_opening_hours())
     await bot.send_message(chat_id=CHAT_ID, text="https://la-bibimerie.bykomdab.com/?booking=true")
     await bot.send_message(chat_id=CHAT_ID, text="réserver / book a table")
 
-    # Story 2
+    # Story 2 - menu
     await bot.send_message(chat_id=CHAT_ID, text="https://wiicmenu-qrcode.com/app/offre.php?resto=848")
     await bot.send_message(chat_id=CHAT_ID, text="menu")
 
-    # Story 3 : 3 médias
-    media_files = get_all_media_files()
-    selected = random.sample(media_files, 3)
+    # Story 3 - 3 médias
+    files = get_all_media_files()
+    if len(files) < 3:
+        await bot.send_message(chat_id=CHAT_ID, text="Pas assez de fichiers dans Google Drive !")
+        return
+    selected = random.sample(files, 3)
     for file in selected:
         path, mime_type = download_drive_file(file)
         with open(path, "rb") as f:
@@ -107,21 +117,28 @@ async def send_stories():
                 await bot.send_photo(chat_id=CHAT_ID, photo=f)
         os.remove(path)
 
-# === HANDLER ===
+# === COMMANDE /run ET /rerun ===
 async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="📩 Commande reçue, les stories arrivent...")
     await send_stories()
 
-# === LANCEMENT DU BOT ===
-def start_bot():
+# === LANCEMENT PRINCIPAL ===
+async def main():
     app_telegram = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app_telegram.add_handler(CommandHandler("run", run_command))
     app_telegram.add_handler(CommandHandler("rerun", run_command))
-    app_telegram.run_polling()
 
-# === MAIN ===
+    # Lance Flask dans un thread
+    loop = asyncio.get_event_loop()
+    loop.create_task(app_telegram.initialize())
+    loop.create_task(app_telegram.start())
+    loop.create_task(app_telegram.updater.start_polling())
+
+    from threading import Thread
+    def run_flask():
+        app.run(host="0.0.0.0", port=10000)
+    Thread(target=run_flask).start()
+
+    await app_telegram.updater.wait()
+
 if __name__ == "__main__":
-    # Lancer le bot Telegram dans un thread
-    Thread(target=start_bot).start()
-    # Lancer le serveur Flask pour Render
-    app.run(host="0.0.0.0", port=10000)
+    asyncio.run(main())
